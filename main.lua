@@ -60,27 +60,50 @@ function HandleWebTabExecute(Request)
 				function GetType(Thing)
 					return cWebAdmin:GetHTMLEscapedString(tostring(Thing))
 				end
-				local function print(Message)
+				local function print(...)
+					local Message = table.concat(arg, "\t")
 					Fprint(Message)
 					table.insert(Logs, '<b style="color: #D8D8D8;">' .. GetType(Message) .. "</b>")
 				end
-				local function LOG(Message)
+				local function GetMessageFromArg(arg)
+					local Message = ""
+					if #arg == 1 then
+						Message = tostring(arg[1])
+					else
+						local String = "return "
+						for I, k in pairs(arg) do
+							if I ~= 1 and I ~= "n" then
+								String = String .. tostring(k) .. ", "
+							end
+						end
+						local Function = loadstring(String:sub(1, String:len() - 2))
+						assert(Function ~= nil)
+						Message = string.format(arg[1], Function())
+					end
+					return Message
+				end
+				local function LOG(...)
+					local Message = GetMessageFromArg(arg)
 					FLOG(Message)
 					table.insert(Logs, '<b style="color: #D8D8D8;">' .. os.date("[%X] ", os.time()) .. GetType(Message) .. "</b>")
 				end
-				local function LOGWARN(Message)
+				local function LOGWARN(...)
+					local Message = GetMessageFromArg(arg)
 					FLOGWARN(Message)
 					table.insert(Logs, '<b style="color: Red;">' .. os.date("[%X] ", os.time()) .. GetType(Message) .. "</b>")
 				end
-				local function LOGWARNING(Message)
+				local function LOGWARNING(...)
+					local Message = GetMessageFromArg(arg)
 					FLOGWARNING(Message)
 					table.insert(Logs, '<b style="color: Red;">' .. os.date("[%X] ", os.time()) .. GetType(Message) .. "</b>")
 				end
-				local function LOGINFO(Message)
+				local function LOGINFO(...)
+					local Message = GetMessageFromArg(arg)
 					FLOGINFO(Message)
 					table.insert(Logs, '<b style="color: Yellow;">' .. os.date("[%X] ", os.time()) .. GetType(Message) .. "</b>")
 				end
-				local function LOGERROR(Message)
+				local function LOGERROR(...)
+					local Message = GetMessageFromArg(arg)
 					FLOGERROR(Message)
 					table.insert(Logs, '<b style="color: Black;background-color:red">' .. os.date("[%X] ", os.time()) .. GetType(Message) .. "</b>")
 				end
