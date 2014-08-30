@@ -61,11 +61,15 @@ function HandleWebTabExecute(Request)
 					return cWebAdmin:GetHTMLEscapedString(tostring(Thing))
 				end
 				local function print(...)
-					local Message = table.concat(arg, "\t")
-					Fprint(Message)
+					local Message = ""
+					for I, k in pairs({...}) do
+						Message = Message .. tostring(k) .. "\t"
+					end
+					Fprint(...)
 					table.insert(Logs, '<b style="color: #D8D8D8;">' .. GetType(Message) .. "</b>")
 				end
-				local function GetMessageFromArg(arg)
+				local function GetMessageFromArg(...)
+					local arg = {...}
 					local Message = ""
 					if #arg == 1 then
 						Message = tostring(arg[1])
@@ -78,32 +82,32 @@ function HandleWebTabExecute(Request)
 						end
 						local Function = loadstring(String:sub(1, String:len() - 2))
 						assert(Function ~= nil)
-						Message = string.format(arg[1], Function())
+						Message = string.format(arg[1], ...)
 					end
 					return Message
 				end
 				local function LOG(...)
-					local Message = GetMessageFromArg(arg)
+					local Message = GetMessageFromArg(...)
 					FLOG(Message)
 					table.insert(Logs, '<b style="color: #D8D8D8;">' .. os.date("[%X] ", os.time()) .. GetType(Message) .. "</b>")
 				end
 				local function LOGWARN(...)
-					local Message = GetMessageFromArg(arg)
+					local Message = GetMessageFromArg(...)
 					FLOGWARN(Message)
 					table.insert(Logs, '<b style="color: Red;">' .. os.date("[%X] ", os.time()) .. GetType(Message) .. "</b>")
 				end
 				local function LOGWARNING(...)
-					local Message = GetMessageFromArg(arg)
+					local Message = GetMessageFromArg(...)
 					FLOGWARNING(Message)
 					table.insert(Logs, '<b style="color: Red;">' .. os.date("[%X] ", os.time()) .. GetType(Message) .. "</b>")
 				end
 				local function LOGINFO(...)
-					local Message = GetMessageFromArg(arg)
+					local Message = GetMessageFromArg(...)
 					FLOGINFO(Message)
 					table.insert(Logs, '<b style="color: Yellow;">' .. os.date("[%X] ", os.time()) .. GetType(Message) .. "</b>")
 				end
 				local function LOGERROR(...)
-					local Message = GetMessageFromArg(arg)
+					local Message = GetMessageFromArg(...)
 					FLOGERROR(Message)
 					table.insert(Logs, '<b style="color: Black;background-color:red">' .. os.date("[%X] ", os.time()) .. GetType(Message) .. "</b>")
 				end
