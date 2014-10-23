@@ -10,9 +10,8 @@
 
 
 // CheckCurrentLine checks in what line the selector is, and updates the info about it.
-function CheckCurrentLine(a_param)
+function CheckCurrentLine()
 {
-	console.log(a_param);
 	var TextArea = document.getElementById("TextArea");
 	var CurrentLine = 1;
 	var CurrentPos = TextArea.selectionEnd;
@@ -64,11 +63,11 @@ function HandleOnKeyPress(a_Event)
 		TextArea.value = TextArea.value.substring(0, SelectionStart) + "\n" + Tabs + TextArea.value.substring(TextArea.selectionEnd, TextArea.value.length);
 		TextArea.selectionEnd = SelectionStart + NumTabs;
 		TextArea.selectionStart = SelectionStart + NumTabs;
-		window.setInterval(CheckCurrentLine, 1);
+		window.setTimeout(CheckCurrentLine, 1);
 		
 		return false;
 	}
-	window.setInterval(CheckCurrentLine, 1);
+	window.setTimeout(CheckCurrentLine, 1);
 }
 
 
