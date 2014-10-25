@@ -103,6 +103,7 @@ function HandleExecuteTab(a_Request)
 				end
 			)
 			ErrorMessage = " Line " .. ErrorMessage:sub(ErrorMessage:find(":"), ErrorMessage:len()) -- Remove the first part of the error, because it would only be confusing.
+			ErrorMessage = ErrorMessage:gsub("\n", "<br />")
 			table.insert(LogResults, '<b style="color: Black; background-color: red">' .. os.date("[%X] ", os.time()) .. ErrorMessage .. '</b>')
 		else
 			local Succes, Result, T = pcall(ExecuteFunction)
@@ -113,6 +114,7 @@ function HandleExecuteTab(a_Request)
 					end
 				)
 				Result = " Line " .. Result:sub(Result:find(":"), Result:len()) -- Remove the first part of the error, because it would only be confusing.
+				Result = Result:gsub("\n", "<br />")
 				table.insert(LogResults, '<b style="color: Black; background-color: red">' .. os.date("[%X] ", os.time()) .. Result .. '</b>')
 			else
 				LogResults = Result
