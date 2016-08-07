@@ -147,7 +147,6 @@ function HandleExecuteTab(a_Request)
 			TextAreaContent = cFile:ReadWholeFile(g_Plugin:GetLocalFolder() .. "/Scripts/" .. a_Request.PostParams["OpenFile"])
 		else
 			local FolderContent = cFile:GetFolderContents(g_Plugin:GetLocalFolder() .. "/Scripts/")
-			table.remove(FolderContent, 1); table.remove(FolderContent, 1);
 			Content = Content .. '<table>\n'
 			for Idx, FileName in ipairs(FolderContent) do
 				Content = Content .. '	<tr>\n'
