@@ -20,6 +20,7 @@ editor.session.setMode("ace/mode/lua");
 
 
 let lastOpenedFile = null;
+let pollId;
 let outputDom = document.getElementById("output");
 let dropdownDom = document.getElementById("drop-down");
 let logDom = document.getElementById("logs");
@@ -61,12 +62,35 @@ function log(msg, color) {
 
 
 
+/*
+	Turns the list of logs into dom objects and appends them to outputDom.
+ */
+function appendOutput(logs) {
+	for (let msg of logs || []) {
+		let log = document.createElement("b");
+		log.classList.add(msg.type);
+		let text = ''
+		if (msg.type != 'print') {
+			text = "[" + msg.time + "] ";
+		}
+		log.innerText = text + msg.message
+		outputDom.appendChild(log);
+	}
+}
+
+
+
+
 
 /*
 	Sends the code in the editor to the server to be executed.
 	Expects a list of message as a response and puts those in the outputDom.
  */
 async function execute(event) {
+	if (pollId) {
+		clearInterval(pollId)
+	}
+		
 	event.target.disabled = "disabled"
 	let response = await fetch("/~webadmin/Executor/Execute+Lua?endpoint=execute", {
 		method: "POST",
@@ -81,16 +105,19 @@ async function execute(event) {
 	
 	let content = await response.json();
 	outputDom.innerText = '';
-	for (let msg of content || []) {
-		let log = document.createElement("b");
-		log.classList.add(msg.type);
-		let text = ''
-		if (msg.type != 'print') {
-			text = "[" + msg.time + "] ";
+	appendOutput(content.logs);
+	
+	pollId = setInterval(async() => {
+		let numLogs = outputDom.children.length + 1;
+		let response = await fetch(`/~webadmin/Executor/Execute+Lua?endpoint=poll&exec-id=${content.execId}&last-msg=${numLogs}`)
+		if (response.headers.get("content-type") == "error") {
+			// Some kind of error occured. This can happen if the server reloaded and the execId isn't recognized anymore.
+			clearInterval(pollId);
+			return;
 		}
-		log.innerText = text + msg.message
-		outputDom.appendChild(log);
-	}
+		let logs = await response.json();
+		appendOutput(logs);
+	}, 500)
 	
 	event.target.disabled = ""
 }
