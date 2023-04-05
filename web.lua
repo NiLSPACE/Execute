@@ -245,7 +245,32 @@ local function HandleExecuteEndpoint(a_Request, a_Session)
 			table.insert(logs, {type = "log-error", message = result, time = os.date("%X ", os.time()) })
 		end
 	end
-	return cJson:Serialize(logs), "application/json";
+	
+	-- Generate a random id.
+	local execId;
+	repeat
+		execId = math.floor(math.random() * (2 ^ 32));
+	until (not a_Session.Logs[execId])
+	
+	a_Session.Logs[execId] = logs
+	
+	return cJson:Serialize({execId = execId, logs = logs}), "application/json";
+end
+
+
+
+
+
+-- Endpoint that will return all logs since after the provided log index.
+function HandlePollEndpoint(a_Request, a_Session)
+	local execId = tonumber(a_Request.Params["exec-id"])
+	local lastMsg = tonumber(a_Request.Params["last-msg"])
+	if (not a_Session.Logs[execId]) then
+		return "[]", "error";
+	end
+	
+	local logs = {unpack(a_Session.Logs[execId], lastMsg)}
+	return cJson:Serialize(logs), "application/json"
 end
 
 
@@ -258,7 +283,8 @@ local m_Endpoints = {
 	['delete-file']   = HandleDeleteFileEndpoint,
 	['get-file']      = HandleOpenFileEndpoint,
 	['save-file']     = HandleSaveFileEndpoint,
-	['execute']       = HandleExecuteEndpoint
+	['execute']       = HandleExecuteEndpoint,
+	['poll']          = HandlePollEndpoint,
 }
 
 
@@ -268,7 +294,7 @@ local m_Endpoints = {
 -- Web Tab endpoint.
 -- If no get parameter to specify an endpoint is provided it returns the html page.
 function HandleExecuteTab(a_Request)
-	m_Sessions[a_Request.Username] = m_Sessions[a_Request.Username] or {}
+	m_Sessions[a_Request.Username] = m_Sessions[a_Request.Username] or {LuaScript = "", Logs = {}}
 	
 	if (a_Request.Params['endpoint'] ~= nil) then
 		local handler = m_Endpoints[a_Request.Params['endpoint']];
