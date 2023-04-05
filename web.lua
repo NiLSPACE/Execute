@@ -5,21 +5,38 @@
 
 
 
+-- Contains information per webadmin user information like the last executed code.
+-- Can be used later to continue polling for logs if the executed code uses async functions like cWorld:QueueTask.
+local m_Sessions = {};
+
+
+
+
+
+-- Lua code which gets prepended to every code that will be executed.
+-- Replaces print and all LOGXYZ functions with versions that save the message to a table
+-- so they can be returned and displayed to the webadmin user.
 local m_LuaScript = [[
-local Logs = {}
+local Logs = ...
 local Fprint = print
 local FLOG = LOG
 local FLOGWARN = LOGWARN
 local FLOGWARNING = LOGWARNING
 local FLOGINFO = LOGINFO
 local FLOGERROR = LOGERROR
+
+local function ADD_TO_LOG(a_LogType, a_Message)
+	table.insert(Logs, {type = a_LogType, time = os.date("%X ", os.time()), message = tostring(a_Message) })
+end
+
+
 local function print(...)
 	local Message = ""
 	for I, k in pairs({...}) do
 		Message = Message .. tostring(k) .. "\t"
 	end
 	Fprint(...)
-	table.insert(Logs, '<b style="color: #D8D8D8;">' .. tostring(Message) .. "</b>")
+	ADD_TO_LOG("print", Message)
 end
 local function GetMessageFromArg(...)
 	local arg = {...}
@@ -39,30 +56,32 @@ local function GetMessageFromArg(...)
 	end
 	return Message
 end
+
+
 local function LOG(...)
 	local Message = GetMessageFromArg(...)
 	FLOG(Message)
-	table.insert(Logs, '<b style="color: #D8D8D8;">' .. os.date("[%X] ", os.time()) .. tostring(Message) .. "</b>")
+	ADD_TO_LOG("log", Message);
 end
 local function LOGWARN(...)
 	local Message = GetMessageFromArg(...)
 	FLOGWARN(Message)
-	table.insert(Logs, '<b style="color: Red;">' .. os.date("[%X] ", os.time()) .. tostring(Message) .. "</b>")
+	ADD_TO_LOG("log-warn", Message);
 end
 local function LOGWARNING(...)
 	local Message = GetMessageFromArg(...)
 	FLOGWARNING(Message)
-	table.insert(Logs, '<b style="color: Red;">' .. os.date("[%X] ", os.time()) .. tostring(Message) .. "</b>")
+	ADD_TO_LOG("log-warn", Message);
 end
 local function LOGINFO(...)
 	local Message = GetMessageFromArg(...)
 	FLOGINFO(Message)
-	table.insert(Logs, '<b style="color: Yellow;">' .. os.date("[%X] ", os.time()) .. tostring(Message) .. "</b>")
+	ADD_TO_LOG("log-info", Message);
 end
 local function LOGERROR(...)
 	local Message = GetMessageFromArg(...)
 	FLOGERROR(Message)
-	table.insert(Logs, '<b style="color: Black; background-color: red">' .. os.date("[%X] ", os.time()) .. tostring(Message) .. "</b>")
+	ADD_TO_LOG("log-error", Message);
 end
 ]]
 
@@ -70,8 +89,16 @@ end
 
 
 
-function GetExecuteString(a_TextAreaContent)
-	return m_LuaScript .. a_TextAreaContent .. [[
+-- Pattern to check if a name is valid.
+-- A filename is valid when it only has letters and numbers and ends with the .lua extension.
+local m_FileNameValidationPattern = "^%w-%.lua$"
+
+
+
+
+
+local function GetExecuteString(a_Code)
+	return m_LuaScript .. a_Code .. [[
 
 	return Logs]]
 end
@@ -79,7 +106,7 @@ end
 
 
 
-function GetNumLines(a_String)
+local function GetNumLines(a_String)
 	return #StringSplit(a_String, "\n")
 end
 
@@ -87,115 +114,197 @@ end
 
 
 
-function HandleExecuteTab(a_Request)
-	local Content = ""
-	local TextAreaContent = a_Request.PostParams["LuaScript"] or ""
-	local LogResults = {}
+local m_ResourceFiles = {
+	['editor']   = g_Plugin:GetLocalFolder() .. "/ace/ace.js",
+	['mode-lua'] = g_Plugin:GetLocalFolder() .. "/ace/mode-lua.js",
+	['init']     = g_Plugin:GetLocalFolder() .. "/init.js",
+	['style']    = g_Plugin:GetLocalFolder() .. "/style.css"
+}
+
+
+
+
+
+-- Endpoint to retrieve javascript and css files.
+local function HandleResourceEndpoint(a_Request, a_Session)
+	local requestedFile = a_Request.Params['file']
+	local path = m_ResourceFiles[requestedFile]
+	if (not path) then
+		return "Not found"
+	end
+	local ext = path:match("%.(.-)$");
+	local contentType = cWebAdmin:GetContentTypeFromFileExt(ext);
+	return cFile:ReadWholeFile(path), contentType
+end
+
+
+
+
+
+-- Endpoint to retrieve the list of all the files in the script folder.
+local function HandleGetFileListEndpoint(a_Request, a_Session)
+	local FolderContent = cFile:GetFolderContents(g_Plugin:GetLocalFolder() .. "/Scripts/")
+	return cJson:Serialize(FolderContent), "application/json"
+end
+
+
+
+
+
+-- Endpoint to delete a script file.
+-- If an error occurs the content-type is "error"
+local function HandleDeleteFileEndpoint(a_Request, a_Session)
+	local filename = a_Request.PostParams['delete-file'];
+	if (not filename:match(m_FileNameValidationPattern)) then
+		return "Improper filename", "error"
+	end
+	local path = g_Plugin:GetLocalFolder() .. "/Scripts/" .. filename;
+	if (not cFile:IsFile(path)) then
+		return "File not found", "error";
+	end
 	
-	-- Execute the TextArea content if it's not nothing.
-	if ((TextAreaContent ~= "") and (a_Request.PostParams["Execute"] ~= nil)) then
-		local ExecuteString = GetExecuteString(TextAreaContent)
-		local ExecuteFunction, ErrorMessage = loadstring(ExecuteString)
-		if (not ExecuteFunction) then
-			ErrorMessage = ErrorMessage:gsub(":.-:", 
+	cFile:Delete(path)
+	return "ok"
+end
+
+
+
+
+
+-- Endpoint to open a file from the Script folder.
+-- If an error occured the content-type is "error"
+local function HandleOpenFileEndpoint(a_Request, a_Session)
+	local filename = a_Request.Params['file']
+	if (not filename:match(m_FileNameValidationPattern)) then
+		return "Improper filename", "error"
+	end
+	local path = g_Plugin:GetLocalFolder() .. "/Scripts/" .. filename;
+	if (cFile:IsFile(path)) then
+		local code = cFile:ReadWholeFile(path)
+		a_Session.LuaScript = code;
+		return code, "text/plain"
+	else
+		return "File does not exist.", "error"
+	end
+end
+
+
+
+
+
+-- Endpoint that saves the provided Lua code to a file in the Script folder.
+-- Anything other than 'ok' is an error.
+local function HandleSaveFileEndpoint(a_Request, a_Session)
+	local filename = a_Request.PostParams['file']
+	if (not filename:match(m_FileNameValidationPattern)) then
+		return "Improper filename", "error"
+	end
+	local code = a_Request.PostParams['code'];
+	local f = io.open(g_Plugin:GetLocalFolder() .. "/Scripts/" .. filename, "w")
+	f:write(code);
+	f:close();
+	
+	return "ok"
+end
+
+
+
+
+
+-- Endpoint that executes the provided Lua code. 
+-- If the code uses the print or LOGXYZ functions the results will be returned as a JSON array.
+local function HandleExecuteEndpoint(a_Request, a_Session)
+	if (a_Request.PostParams["LuaScript"] == nil) then
+		return "No code provided"
+	end
+	
+	local code = a_Request.PostParams["LuaScript"]
+	a_Session.LuaScript = code;
+	local logs = {}
+	local executeCode = GetExecuteString(code)
+	local compiledFunction, errorMessage = loadstring(executeCode)
+	if (not compiledFunction) then
+		errorMessage = errorMessage:gsub(":.-:", 
+			function(a_Str)
+				return ":" .. (tonumber(a_Str:sub(2, a_Str:len() - 1)) or 0) - GetNumLines(m_LuaScript) .. ":"
+			end
+		)
+		errorMessage = " Line " .. errorMessage:sub(errorMessage:find(":"), errorMessage:len()) -- Remove the first part of the error, because it would only be confusing.
+		errorMessage = errorMessage:gsub("\n", "<br />")
+		table.insert(logs, {type = "log-error", message = errorMessage, time = os.date("%X ", os.time()) })
+	else
+		local success, result = pcall(compiledFunction, logs)
+		if (not success) then
+			result = result:gsub(":.-:", 
 				function(a_Str)
 					return ":" .. (tonumber(a_Str:sub(2, a_Str:len() - 1)) or 0) - GetNumLines(m_LuaScript) .. ":"
 				end
 			)
-			ErrorMessage = " Line " .. ErrorMessage:sub(ErrorMessage:find(":"), ErrorMessage:len()) -- Remove the first part of the error, because it would only be confusing.
-			ErrorMessage = ErrorMessage:gsub("\n", "<br />")
-			table.insert(LogResults, '<b style="color: Black; background-color: red">' .. os.date("[%X] ", os.time()) .. ErrorMessage .. '</b>')
-		else
-			local Succes, Result, T = pcall(ExecuteFunction)
-			if (not Succes) then
-				Result = Result:gsub(":.-:", 
-					function(a_Str)
-						return ":" .. (tonumber(a_Str:sub(2, a_Str:len() - 1)) or 0) - GetNumLines(m_LuaScript) .. ":"
-					end
-				)
-				Result = " Line " .. Result:sub(Result:find(":"), Result:len()) -- Remove the first part of the error, because it would only be confusing.
-				Result = Result:gsub("\n", "<br />")
-				table.insert(LogResults, '<b style="color: Black; background-color: red">' .. os.date("[%X] ", os.time()) .. Result .. '</b>')
-			else
-				LogResults = Result
-			end
+			result = " Line " .. result:sub(result:find(":"), result:len()) -- Remove the first part of the error, because it would only be confusing.
+			result = result:gsub("\n", "<br />")
+			table.insert(logs, {type = "log-error", message = result, time = os.date("%X ", os.time()) })
 		end
 	end
+	return cJson:Serialize(logs), "application/json";
+end
+
+
+
+
+
+local m_Endpoints = {
+	['resource']      = HandleResourceEndpoint,
+	['get-file-list'] = HandleGetFileListEndpoint,
+	['delete-file']   = HandleDeleteFileEndpoint,
+	['get-file']      = HandleOpenFileEndpoint,
+	['save-file']     = HandleSaveFileEndpoint,
+	['execute']       = HandleExecuteEndpoint
+}
+
+
+
+
+
+-- Web Tab endpoint.
+-- If no get parameter to specify an endpoint is provided it returns the html page.
+function HandleExecuteTab(a_Request)
+	m_Sessions[a_Request.Username] = m_Sessions[a_Request.Username] or {}
 	
-	-- Check if the user wants to save his script to a file
-	if (a_Request.PostParams["SaveFile"] ~= nil) then
-		if (a_Request.PostParams["FileName"] == "") then
-			Content = Content .. '<b style="color: red;">You must enter a filename</b>\n'
-		else
-			local FileName = a_Request.PostParams["FileName"]:gsub("%..", ""):gsub("/", "")
-			local File = io.open(g_Plugin:GetLocalFolder() .. "/Scripts/" .. FileName, "w")
-			File:write(tostring(TextAreaContent))
-			File:close()
-			Content = Content .. '<b style="color: green;">File saved</b>\n'
+	if (a_Request.Params['endpoint'] ~= nil) then
+		local handler = m_Endpoints[a_Request.Params['endpoint']];
+		if (not handler) then
+			error("Requested endpoint not found");
 		end
+		return handler(a_Request, m_Sessions[a_Request.Username]);
 	end
 	
-	-- Check if the user wants to delete a file
-	if (a_Request.PostParams["DeleteFile"] ~= nil) then
-		cFile:Delete(g_Plugin:GetLocalFolder() .. "/Scripts/" .. a_Request.PostParams["DeleteFile"])
-		Content = Content .. '<b style="color: red;">You removed "' .. a_Request.PostParams["DeleteFile"] .. '"</b><br />'
-	end
+	local code = m_Sessions[a_Request.Username].LuaScript
 	
-	-- Open a file if the user wants it. If the file doesn't exist we simply show all the known files.
-	if (a_Request.PostParams["OpenFile"] ~= nil) then
-		if (cFile:Exists(g_Plugin:GetLocalFolder() .. "/Scripts/" .. a_Request.PostParams["OpenFile"])) then
-			TextAreaContent = cFile:ReadWholeFile(g_Plugin:GetLocalFolder() .. "/Scripts/" .. a_Request.PostParams["OpenFile"])
-		else
-			local FolderContent = cFile:GetFolderContents(g_Plugin:GetLocalFolder() .. "/Scripts/")
-			Content = Content .. '<table>\n'
-			for Idx, FileName in ipairs(FolderContent) do
-				Content = Content .. '	<tr>\n'
-				Content = Content .. '		<td>' .. FileName .. '</td>'
-				Content = Content .. '		<td><form method="POST"><input type="hidden" name="DeleteFile" value="' .. FileName .. '" /><input type="submit" value="Delete" name="Delete" /></form></td>'
-				Content = Content .. '		<td><form method="POST"><input type="hidden" name="OpenFile" value="' .. FileName .. '" /><input type="submit" value="Open" name="Open" /></form></td>'
-				Content = Content .. '	</tr>'
-			end
-			Content = Content .. '</table>'
-			return Content
-		end
-	end
-	
-	-- Add the javascript to the content
-	Content = Content .. '<script type="text/javascript">' .. cFile:ReadWholeFile(g_Plugin:GetLocalFolder() .. "/editor.js") .. '</script>\n'
-	
-	Content = Content .. '<form method="POST">\n'
-	Content = Content .. '	<table>\n'
-	Content = Content .. '		<tr>\n'
-	Content = Content .. '			<td><input type="submit" value="Execute" name="Execute" /></td>'
-	Content = Content .. '			<td>&ensp;</td>\n' -- Placeholder
-	Content = Content .. '			<td>&ensp;</td>\n' -- Placeholder
-	Content = Content .. '			<td><input type="submit" value="Script List" name="OpenFile" /></td>\n'
-	Content = Content .. '			<td><input type="text" onclick="if (this.value == \'filename\') {this.value = \'\'}" value="filename" name="FileName" /><input type="submit" value="Save File" name="SaveFile"/></td>'
-	Content = Content .. '		</tr>\n'
-	Content = Content .. '	</table>'
-	Content = Content .. '	<textarea style="width: 100%; height: 500px;" name="LuaScript" id="TextArea" onclick="CheckCurrentLine();" onkeypress="return HandleOnKeyPress(event);">' .. TextAreaContent .. '</textarea>\n'
-	Content = Content .. '</form>\n'
-	
-	Content = Content .. '<div style="width: 100%; height: 20px;">\n'
-	Content = Content .. '	<table style="width: 100%; height: 100%;">\n'
-	Content = Content .. '		<tr>\n'
-	Content = Content .. '			<td id="CurrentLineCounter">CurrentLine: 1</td>\n'
-	Content = Content .. '			<td id="LineCounter">Num lines: </td>\n'
-	Content = Content .. '		</tr>\n'
-	Content = Content .. '	</table>\n'
-	Content = Content .. '</div> <br />\n'
-	
-	-- Add the results from the executed script.
-	if (#LogResults > 0) then
-		Content = Content .. '<div style="background-color: black;"><br />\n'
-		for I, LogLine in pairs(LogResults) do
-			Content = Content .. LogLine .. "<br />\n"
-		end
-		Content = Content .. "<br /></div>"
-	end
-	
-	-- Make sure the data about the textarea is update on startup.
-	Content = Content .. '<script type="text/javascript">CheckCurrentLine("test");</script>';
+	local Content = [[
+<script src="/~webadmin/Executor/Execute+Lua?endpoint=resource&file=editor"></script>
+<script src="/~webadmin/Executor/Execute+Lua?endpoint=resource&file=mode-lua"></script>
+<link rel="stylesheet" type="text/css" href="/~webadmin/Executor/Execute+Lua?endpoint=resource&file=style" />
+
+<div id="buttons">
+	<button onclick="execute(event)">Execute</button>
+	<button onclick="listFilesDropDown(event)">Show Files</button>
+	<button onclick="saveFileDropDown(event)">Save File</button>
+</div>
+
+<div id="logs">
+</div>
+
+<div id="drop-down" data-status="closed">
+</div>
+
+<pre id="editor">]] .. cWebAdmin:GetHTMLEscapedString(code) .. [[</pre>
+
+<div id="output">
+</div>
+
+<script src="/~webadmin/Executor/Execute+Lua?endpoint=resource&file=init"></script>
+]]	
+
 	return Content
 end
 
