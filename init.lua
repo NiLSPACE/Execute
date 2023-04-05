@@ -6,15 +6,13 @@
 
 
 -- Global plugin object
-g_Plugin = nil
+g_Plugin = cPluginManager:GetCurrentPlugin();
 
 
 
 
 
 function Initialize(a_Plugin)
-	g_Plugin = a_Plugin
-	
 	a_Plugin:SetName("Executor")
 	a_Plugin:SetVersion(2)
 	

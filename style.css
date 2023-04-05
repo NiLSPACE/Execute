@@ -1,0 +1,43 @@
+#editor {
+    width: 100%;
+    height: 400px;
+}
+
+#output {
+	width: 100%;
+	background-color: black;
+	color: white;
+	display: flex;
+	flex-direction: column;
+}
+
+#output .log-error {
+	background-color: red;
+	color: black;
+}
+#output .log-warn {
+	color: red;
+}
+#output .print, #output .log {
+	color: #D8D8D8;
+}
+#output .log-info {
+	color: yellow;
+}
+
+#buttons {
+	display:flex;
+}
+
+#logs {
+	display:flex;
+	flex-direction:column;
+}
+
+#logs a {
+	align-self: end;
+	position: absolute;
+}
+
+#files {
+}
